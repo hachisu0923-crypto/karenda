@@ -1,0 +1,1910 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#667eea">
+    <meta name="description" content="予定管理、バイト給料計算、収支管理ができるカレンダーアプリ">
+    
+    <title>マイカレンダー - 予定・バイト・収支管理</title>
+    
+    <!-- PWA マニフェスト -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <!-- PDF.js ライブラリ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* iOS Safe Area対応 */
+        @supports (padding-top: env(safe-area-inset-top)) {
+            header {
+                padding-top: calc(1rem + env(safe-area-inset-top));
+            }
+            .tab-nav-bottom {
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            font-size: 1.125rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 70px;
+        }
+
+        main {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 1rem;
+            padding-bottom: 2rem;
+        }
+
+        /* 下部タブナビゲーション（モバイル向け） */
+        .tab-nav-bottom {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+            z-index: 100;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 0.75rem 0.5rem;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 0.625rem;
+            color: #6b7280;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+            transition: all 0.2s;
+        }
+
+        .tab-btn .tab-icon {
+            font-size: 1.25rem;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+        }
+
+        .tab-btn:active {
+            background: #f3f4f6;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .summary-card {
+            padding: 0.75rem;
+            border-radius: 0.75rem;
+            border: 1px solid;
+        }
+
+        .summary-card.income { background: #ecfdf5; border-color: #a7f3d0; }
+        .summary-card.expense { background: #fef2f2; border-color: #fecaca; }
+        .summary-card.balance { background: #eff6ff; border-color: #bfdbfe; }
+        .summary-card.balance.negative { background: #fff7ed; border-color: #fed7aa; }
+
+        .summary-label {
+            font-size: 0.625rem;
+            margin-bottom: 0.125rem;
+        }
+
+        .summary-card.income .summary-label { color: #059669; }
+        .summary-card.expense .summary-label { color: #dc2626; }
+        .summary-card.balance .summary-label { color: #2563eb; }
+        .summary-card.balance.negative .summary-label { color: #ea580c; }
+
+        .summary-value {
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .summary-card.income .summary-value { color: #047857; }
+        .summary-card.expense .summary-value { color: #b91c1c; }
+        .summary-card.balance .summary-value { color: #1d4ed8; }
+        .summary-card.balance.negative .summary-value { color: #c2410c; }
+
+        .calendar-container {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .calendar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .calendar-header h2 {
+            font-size: 1rem;
+        }
+
+        .nav-btn {
+            width: 2.5rem;
+            height: 2.5rem;
+            border: none;
+            background: none;
+            cursor: pointer;
+            border-radius: 50%;
+            font-size: 1.25rem;
+            color: #6b7280;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-btn:active {
+            background: #e5e7eb;
+        }
+
+        .weekdays {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .weekday {
+            padding: 0.375rem;
+            text-align: center;
+            font-size: 0.625rem;
+            font-weight: 600;
+            color: #6b7280;
+        }
+
+        .weekday:first-child { color: #ef4444; }
+        .weekday:last-child { color: #3b82f6; }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+        }
+
+        .calendar-day {
+            min-height: 52px;
+            padding: 2px;
+            border-bottom: 1px solid #f3f4f6;
+            border-right: 1px solid #f3f4f6;
+            cursor: pointer;
+            transition: background 0.15s;
+            position: relative;
+        }
+
+        .calendar-day:nth-child(7n) { border-right: none; }
+        .calendar-day:active { background: #e0e7ff; }
+        .calendar-day.empty { background: #fafafa; cursor: default; }
+        .calendar-day.selected { background: #eef2ff; }
+
+        .day-number {
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-bottom: 1px;
+        }
+
+        .calendar-day:nth-child(7n+1) .day-number { color: #ef4444; }
+        .calendar-day:nth-child(7n) .day-number { color: #3b82f6; }
+
+        .day-number.today {
+            background: #667eea;
+            color: white !important;
+            width: 1.375rem;
+            height: 1.375rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6875rem;
+        }
+
+        .day-events {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .day-event-tag {
+            font-size: 0.5rem;
+            padding: 1px 2px;
+            border-radius: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .day-event-tag.event { background: #e0e7ff; color: #4338ca; }
+        .day-event-tag.shift { background: #d1fae5; color: #047857; }
+        .day-event-tag.money { background: #fee2e2; color: #b91c1c; }
+        .day-event-tag.money.income { background: #d1fae5; color: #047857; }
+
+        .detail-panel {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: 1rem;
+            padding: 1rem;
+        }
+
+        .detail-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .detail-header h3 {
+            font-size: 0.875rem;
+        }
+
+        .add-buttons {
+            display: flex;
+            gap: 0.375rem;
+            flex-wrap: wrap;
+        }
+
+        .add-btn {
+            font-size: 0.6875rem;
+            padding: 0.375rem 0.625rem;
+            border-radius: 9999px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        .add-btn.event { background: #e0e7ff; color: #4338ca; }
+        .add-btn.event:active { background: #c7d2fe; }
+        .add-btn.shift { background: #d1fae5; color: #047857; }
+        .add-btn.shift:active { background: #a7f3d0; }
+        .add-btn.money { background: #fee2e2; color: #b91c1c; }
+        .add-btn.money:active { background: #fecaca; }
+
+        .empty-message {
+            text-align: center;
+            color: #9ca3af;
+            padding: 1.5rem;
+            font-size: 0.875rem;
+        }
+
+        .detail-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .detail-item.event { background: #eef2ff; }
+        .detail-item.shift { background: #ecfdf5; }
+        .detail-item.expense { background: #fef2f2; }
+        .detail-item.income { background: #ecfdf5; }
+
+        .detail-item-content h4 {
+            font-size: 0.8125rem;
+            margin-bottom: 0.125rem;
+        }
+
+        .detail-item.event h4 { color: #3730a3; }
+        .detail-item.shift h4 { color: #047857; }
+        .detail-item.expense h4 { color: #b91c1c; }
+        .detail-item.income h4 { color: #047857; }
+
+        .detail-item-content p {
+            font-size: 0.6875rem;
+            color: #6b7280;
+        }
+
+        .detail-item-content .amount {
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .delete-btn {
+            background: none;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            opacity: 0.6;
+            font-size: 1rem;
+        }
+
+        .delete-btn:active { opacity: 1; }
+
+        .wage-setting {
+            background: white;
+            border-radius: 1rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .wage-setting h3 {
+            font-size: 0.875rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .wage-input-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .wage-input-group input {
+            width: 100px;
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+        }
+
+        .earnings-card {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            color: white;
+            margin-bottom: 1rem;
+        }
+
+        .earnings-card .label {
+            font-size: 0.75rem;
+            opacity: 0.9;
+            margin-bottom: 0.25rem;
+        }
+
+        .earnings-card .value {
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        .earnings-card .sub {
+            font-size: 0.75rem;
+            opacity: 0.75;
+            margin-top: 0.375rem;
+        }
+
+        .list-container {
+            background: white;
+            border-radius: 1rem;
+            padding: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .list-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .list-header h3 {
+            font-size: 0.9375rem;
+        }
+
+        .primary-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 0.5rem 0.875rem;
+            border-radius: 0.5rem;
+            font-size: 0.8125rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-weight: 500;
+        }
+
+        .primary-btn:active { opacity: 0.8; }
+        .primary-btn.green { background: #10b981; }
+        .primary-btn.orange { background: #f97316; }
+
+        .shift-item, .transaction-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: #f9fafb;
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .shift-item-info h4, .transaction-item-info h4 {
+            font-size: 0.8125rem;
+            margin-bottom: 0.125rem;
+        }
+
+        .shift-item-info p, .transaction-item-info p {
+            font-size: 0.6875rem;
+            color: #6b7280;
+        }
+
+        .shift-item-amount { color: #059669; font-weight: 600; font-size: 0.875rem; }
+        .transaction-item-amount { font-weight: 600; font-size: 0.875rem; }
+        .transaction-item-amount.income { color: #059669; }
+        .transaction-item-amount.expense { color: #dc2626; }
+
+        .file-upload-area {
+            border: 2px dashed #d1d5db;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 1rem;
+            background: white;
+        }
+
+        .file-upload-area:active {
+            border-color: #667eea;
+            background: #eef2ff;
+        }
+
+        .file-upload-area svg {
+            width: 2rem;
+            height: 2rem;
+            color: #9ca3af;
+            margin: 0 auto 0.5rem;
+        }
+
+        .file-upload-area h4 {
+            color: #374151;
+            font-size: 0.8125rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .file-upload-area p {
+            color: #6b7280;
+            font-size: 0.6875rem;
+        }
+
+        .file-upload-area .supported-formats {
+            margin-top: 0.5rem;
+            display: flex;
+            justify-content: center;
+            gap: 0.375rem;
+        }
+
+        .format-badge {
+            font-size: 0.5625rem;
+            padding: 0.1875rem 0.375rem;
+            border-radius: 0.25rem;
+            font-weight: 500;
+        }
+
+        .format-badge.image { background: #dbeafe; color: #1e40af; }
+        .format-badge.pdf { background: #fee2e2; color: #b91c1c; }
+
+        /* モーダル */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: flex-end;
+            justify-content: center;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: white;
+            border-radius: 1.5rem 1.5rem 0 0;
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            border-bottom: 1px solid #e5e7eb;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 1;
+        }
+
+        .modal-header h3 { font-size: 1rem; }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: #9ca3af;
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        .modal-body { 
+            padding: 1rem; 
+            padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0));
+        }
+
+        .form-group { margin-bottom: 1rem; }
+
+        .form-group label {
+            display: block;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 0.375rem;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            -webkit-appearance: none;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 1.25rem;
+            height: 1.25rem;
+        }
+
+        .checkbox-group label { margin-bottom: 0; }
+
+        .type-toggle {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .type-btn {
+            flex: 1;
+            padding: 0.75rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .type-btn.active.expense { background: #dc2626; color: white; }
+        .type-btn.active.income { background: #059669; color: white; }
+
+        .preview-box {
+            background: #ecfdf5;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .preview-box .label {
+            font-size: 0.75rem;
+            color: #059669;
+        }
+
+        .preview-box .value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #047857;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 0.875rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            cursor: pointer;
+        }
+
+        .submit-btn.event { background: #667eea; }
+        .submit-btn.shift { background: #10b981; }
+        .submit-btn.transaction { background: #f97316; }
+
+        .submit-btn:active { opacity: 0.8; }
+
+        .file-preview {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: #f9fafb;
+            border-radius: 0.5rem;
+        }
+
+        .file-preview img {
+            max-width: 100%;
+            max-height: 120px;
+            object-fit: contain;
+            border-radius: 0.5rem;
+        }
+
+        .file-preview .pdf-preview {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #b91c1c;
+            font-size: 0.8125rem;
+        }
+
+        .file-preview .pdf-preview svg {
+            width: 1.25rem;
+            height: 1.25rem;
+        }
+
+        .extracted-text {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: #fef3c7;
+            border-radius: 0.375rem;
+            font-size: 0.6875rem;
+            color: #92400e;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .extracted-text strong {
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+
+        .processing-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1rem;
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .processing-indicator .spinner {
+            width: 1.25rem;
+            height: 1.25rem;
+            border: 2px solid #e5e7eb;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .ocr-result-box {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .ocr-result-box h5 {
+            font-size: 0.75rem;
+            color: #15803d;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .ocr-amounts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+        }
+
+        .ocr-amount-btn {
+            padding: 0.375rem 0.625rem;
+            background: white;
+            border: 1px solid #86efac;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            font-size: 0.8125rem;
+            font-weight: 500;
+        }
+
+        .ocr-amount-btn:active {
+            background: #dcfce7;
+            border-color: #22c55e;
+        }
+
+        /* インストールバナー */
+        .install-banner {
+            display: none;
+            position: fixed;
+            bottom: 70px;
+            left: 1rem;
+            right: 1rem;
+            background: white;
+            padding: 1rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 99;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .install-banner.show { display: flex; }
+
+        .install-banner-text {
+            flex: 1;
+        }
+
+        .install-banner-text h4 {
+            font-size: 0.875rem;
+            margin-bottom: 0.125rem;
+        }
+
+        .install-banner-text p {
+            font-size: 0.6875rem;
+            color: #6b7280;
+        }
+
+        .install-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .install-close {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            font-size: 1.25rem;
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        /* デスクトップ対応 */
+        @media (min-width: 640px) {
+            .summary-value { font-size: 1.125rem; }
+            .summary-label { font-size: 0.75rem; }
+            .calendar-day { min-height: 70px; }
+            .day-number { font-size: 0.875rem; }
+            .day-event-tag { font-size: 0.625rem; }
+            
+            .modal {
+                border-radius: 1rem;
+                max-height: 85vh;
+                margin-bottom: 2rem;
+            }
+            
+            .modal-overlay {
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>📅 マイカレンダー</h1>
+    </header>
+
+    <div class="main-content">
+        <main>
+            <div class="summary-grid">
+                <div class="summary-card income">
+                    <div class="summary-label">収入</div>
+                    <div class="summary-value" id="total-income">¥0</div>
+                </div>
+                <div class="summary-card expense">
+                    <div class="summary-label">支出</div>
+                    <div class="summary-value" id="total-expense">¥0</div>
+                </div>
+                <div class="summary-card balance" id="balance-card">
+                    <div class="summary-label">収支</div>
+                    <div class="summary-value" id="total-balance">¥0</div>
+                </div>
+            </div>
+
+            <div id="tab-calendar" class="tab-content active">
+                <div class="calendar-container">
+                    <div class="calendar-header">
+                        <button class="nav-btn" id="prev-month">‹</button>
+                        <h2 id="current-month">2025年1月</h2>
+                        <button class="nav-btn" id="next-month">›</button>
+                    </div>
+                    <div class="weekdays">
+                        <div class="weekday">日</div>
+                        <div class="weekday">月</div>
+                        <div class="weekday">火</div>
+                        <div class="weekday">水</div>
+                        <div class="weekday">木</div>
+                        <div class="weekday">金</div>
+                        <div class="weekday">土</div>
+                    </div>
+                    <div class="calendar-grid" id="calendar-grid"></div>
+                </div>
+
+                <div class="detail-panel" id="detail-panel" style="display: none;">
+                    <div class="detail-header">
+                        <h3 id="detail-date">1月1日の予定</h3>
+                        <div class="add-buttons">
+                            <button class="add-btn event" onclick="openModal('event')">+ 予定</button>
+                            <button class="add-btn shift" onclick="openModal('shift')">+ バイト</button>
+                            <button class="add-btn money" onclick="openModal('transaction')">+ 収支</button>
+                        </div>
+                    </div>
+                    <div id="detail-list"></div>
+                </div>
+            </div>
+
+            <div id="tab-shifts" class="tab-content">
+                <div class="wage-setting">
+                    <h3>⚙️ 時給設定</h3>
+                    <div class="wage-input-group">
+                        <span>時給:</span>
+                        <input type="number" id="hourly-wage" value="1100" inputmode="numeric">
+                        <span>円</span>
+                    </div>
+                </div>
+
+                <div class="earnings-card">
+                    <div class="label">今月の給料（見込み）</div>
+                    <div class="value" id="monthly-earnings">¥0</div>
+                    <div class="sub" id="shift-count">0回勤務</div>
+                </div>
+
+                <div class="list-container">
+                    <div class="list-header">
+                        <h3>📋 シフト一覧</h3>
+                        <button class="primary-btn green" onclick="openModal('shift')">+ 追加</button>
+                    </div>
+                    <div id="shift-list"></div>
+                </div>
+            </div>
+
+            <div id="tab-money" class="tab-content">
+                <div class="list-container" style="margin-bottom: 1rem;">
+                    <div class="list-header">
+                        <h3>💳 収支を追加</h3>
+                        <button class="primary-btn orange" onclick="openModal('transaction')">+ 追加</button>
+                    </div>
+                    <div class="file-upload-area" id="main-upload-area">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                        </svg>
+                        <h4>レシート・請求書をアップロード</h4>
+                        <p>タップまたはドラッグ＆ドロップ</p>
+                        <div class="supported-formats">
+                            <span class="format-badge image">JPG/PNG</span>
+                            <span class="format-badge pdf">PDF</span>
+                        </div>
+                    </div>
+                    <input type="file" id="main-file-input" accept="image/*,.pdf" style="display: none;">
+                </div>
+
+                <div class="list-container">
+                    <h3 style="margin-bottom: 1rem;">📊 今月の取引</h3>
+                    <div id="transaction-list"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 下部タブナビゲーション -->
+    <nav class="tab-nav-bottom">
+        <button class="tab-btn active" data-tab="calendar">
+            <span class="tab-icon">📅</span>
+            <span>カレンダー</span>
+        </button>
+        <button class="tab-btn" data-tab="shifts">
+            <span class="tab-icon">💼</span>
+            <span>バイト</span>
+        </button>
+        <button class="tab-btn" data-tab="money">
+            <span class="tab-icon">💰</span>
+            <span>収支</span>
+        </button>
+    </nav>
+
+    <!-- インストールバナー -->
+    <div class="install-banner" id="install-banner">
+        <div class="install-banner-text">
+            <h4>ホーム画面に追加</h4>
+            <p>アプリのように使えます</p>
+        </div>
+        <button class="install-btn" id="install-btn">追加</button>
+        <button class="install-close" id="install-close">&times;</button>
+    </div>
+
+    <!-- モーダル -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">予定を追加</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        // PDF.js設定
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // データストア
+        let events = JSON.parse(localStorage.getItem('events') || '[]');
+        let shifts = JSON.parse(localStorage.getItem('shifts') || '[]');
+        let transactions = JSON.parse(localStorage.getItem('transactions') || '[]');
+        let hourlyWage = parseInt(localStorage.getItem('hourlyWage') || '1100');
+
+        let currentDate = new Date();
+        let selectedDate = null;
+        let currentTab = 'calendar';
+        let extractedAmounts = [];
+        let currentFileData = null;
+        let currentFileType = null;
+        let deferredPrompt = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('hourly-wage').value = hourlyWage;
+            renderCalendar();
+            updateSummary();
+            renderShiftList();
+            renderTransactionList();
+            setupEventListeners();
+            requestNotificationPermission();
+            setupPWA();
+        });
+
+        function setupEventListeners() {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    btn.classList.add('active');
+                    const tab = btn.dataset.tab;
+                    document.getElementById(`tab-${tab}`).classList.add('active');
+                    currentTab = tab;
+                });
+            });
+
+            document.getElementById('prev-month').addEventListener('click', () => {
+                currentDate.setMonth(currentDate.getMonth() - 1);
+                renderCalendar();
+                updateSummary();
+                renderShiftList();
+                renderTransactionList();
+            });
+
+            document.getElementById('next-month').addEventListener('click', () => {
+                currentDate.setMonth(currentDate.getMonth() + 1);
+                renderCalendar();
+                updateSummary();
+                renderShiftList();
+                renderTransactionList();
+            });
+
+            document.getElementById('hourly-wage').addEventListener('change', (e) => {
+                hourlyWage = parseInt(e.target.value) || 1100;
+                localStorage.setItem('hourlyWage', hourlyWage);
+                updateSummary();
+                renderShiftList();
+            });
+
+            const mainUploadArea = document.getElementById('main-upload-area');
+            const mainFileInput = document.getElementById('main-file-input');
+
+            mainUploadArea.addEventListener('click', () => mainFileInput.click());
+            mainFileInput.addEventListener('change', (e) => handleMainFileUpload(e.target.files[0]));
+
+            mainUploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                mainUploadArea.style.borderColor = '#667eea';
+                mainUploadArea.style.background = '#eef2ff';
+            });
+
+            mainUploadArea.addEventListener('dragleave', () => {
+                mainUploadArea.style.borderColor = '#d1d5db';
+                mainUploadArea.style.background = 'white';
+            });
+
+            mainUploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                mainUploadArea.style.borderColor = '#d1d5db';
+                mainUploadArea.style.background = 'white';
+                const file = e.dataTransfer.files[0];
+                if (file) handleMainFileUpload(file);
+            });
+
+            document.getElementById('modal-overlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) closeModal();
+            });
+
+            // インストールバナー
+            document.getElementById('install-close').addEventListener('click', () => {
+                document.getElementById('install-banner').classList.remove('show');
+                localStorage.setItem('installBannerDismissed', 'true');
+            });
+
+            document.getElementById('install-btn').addEventListener('click', async () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    deferredPrompt = null;
+                    document.getElementById('install-banner').classList.remove('show');
+                }
+            });
+        }
+
+        // PWA設定
+        function setupPWA() {
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                if (!localStorage.getItem('installBannerDismissed')) {
+                    document.getElementById('install-banner').classList.add('show');
+                }
+            });
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js').catch(() => {});
+            }
+        }
+
+        async function handleMainFileUpload(file) {
+            if (!file) return;
+
+            openModal('transaction');
+
+            setTimeout(async () => {
+                const previewContainer = document.getElementById('file-preview-container');
+                const processingEl = document.createElement('div');
+                processingEl.className = 'processing-indicator';
+                processingEl.innerHTML = '<div class="spinner"></div><span>処理中...</span>';
+                previewContainer.innerHTML = '';
+                previewContainer.appendChild(processingEl);
+
+                try {
+                    if (file.type === 'application/pdf') {
+                        await processPDF(file);
+                    } else if (file.type.startsWith('image/')) {
+                        await processImage(file);
+                    } else {
+                        alert('画像またはPDFをアップロードしてください');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    previewContainer.innerHTML = '<p style="color:#dc2626;text-align:center;font-size:0.875rem;">エラーが発生しました</p>';
+                }
+            }, 100);
+
+            document.getElementById('main-file-input').value = '';
+        }
+
+        async function processPDF(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            
+            let fullText = '';
+            const previewContainer = document.getElementById('file-preview-container');
+
+            const page = await pdf.getPage(1);
+            const scale = 1.5;
+            const viewport = page.getViewport({ scale });
+            
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: context, viewport }).promise;
+            
+            const imageData = canvas.toDataURL('image/png');
+            currentFileData = imageData;
+            currentFileType = 'pdf';
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const p = await pdf.getPage(i);
+                const textContent = await p.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += pageText + ' ';
+            }
+
+            extractedAmounts = extractAmounts(fullText);
+
+            previewContainer.innerHTML = `
+                <div class="file-preview">
+                    <div class="pdf-preview">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                        </svg>
+                        <span>${escapeHtml(file.name)}</span>
+                    </div>
+                    <img src="${imageData}" alt="Preview" style="margin-top:0.5rem;">
+                    ${fullText.trim() ? `<div class="extracted-text"><strong>📝 抽出テキスト:</strong>${escapeHtml(fullText.substring(0, 200))}${fullText.length > 200 ? '...' : ''}</div>` : ''}
+                </div>
+            `;
+
+            showExtractedAmounts();
+        }
+
+        async function processImage(file) {
+            const previewContainer = document.getElementById('file-preview-container');
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                currentFileData = e.target.result;
+                currentFileType = 'image';
+                extractedAmounts = generateSimulatedAmounts();
+
+                previewContainer.innerHTML = `
+                    <div class="file-preview">
+                        <img src="${currentFileData}" alt="Preview">
+                        <div class="extracted-text"><strong>📝 解析完了</strong>金額を検出しました</div>
+                    </div>
+                `;
+
+                showExtractedAmounts();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function extractAmounts(text) {
+            const amounts = [];
+            const patterns = [
+                /¥\s*([\d,]+)/g,
+                /(\d{1,3}(?:,\d{3})*)\s*円/g,
+                /合計[:\s]*¥?\s*([\d,]+)/gi,
+                /小計[:\s]*¥?\s*([\d,]+)/gi,
+                /税込[:\s]*¥?\s*([\d,]+)/gi,
+                /(\d{1,3}(?:,\d{3})+)/g,
+            ];
+
+            patterns.forEach(pattern => {
+                let match;
+                while ((match = pattern.exec(text)) !== null) {
+                    const amountStr = match[1].replace(/,/g, '');
+                    const amount = parseInt(amountStr);
+                    if (amount >= 1 && amount <= 10000000 && !amounts.includes(amount)) {
+                        amounts.push(amount);
+                    }
+                }
+            });
+
+            amounts.sort((a, b) => b - a);
+            return amounts.slice(0, 8);
+        }
+
+        function generateSimulatedAmounts() {
+            const amounts = [];
+            const baseAmounts = [298, 498, 598, 980, 1280, 1980, 2480, 3500];
+            const count = Math.floor(Math.random() * 3) + 2;
+            
+            for (let i = 0; i < count; i++) {
+                const base = baseAmounts[Math.floor(Math.random() * baseAmounts.length)];
+                if (!amounts.includes(base)) amounts.push(base);
+            }
+
+            const total = amounts.reduce((sum, a) => sum + a, 0);
+            amounts.unshift(total);
+            return amounts;
+        }
+
+        function showExtractedAmounts() {
+            const ocrBox = document.getElementById('ocr-result-box');
+            
+            if (extractedAmounts.length > 0) {
+                ocrBox.innerHTML = `
+                    <h5>🔍 検出金額（タップで入力）</h5>
+                    <div class="ocr-amounts">
+                        ${extractedAmounts.map(amount => 
+                            `<button class="ocr-amount-btn" onclick="selectAmount(${amount})">¥${amount.toLocaleString()}</button>`
+                        ).join('')}
+                    </div>
+                `;
+                ocrBox.style.display = 'block';
+            } else {
+                ocrBox.style.display = 'none';
+            }
+        }
+
+        function selectAmount(amount) {
+            document.getElementById('tx-amount').value = amount;
+        }
+
+        async function handleModalFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const previewContainer = document.getElementById('file-preview-container');
+            previewContainer.innerHTML = '<div class="processing-indicator"><div class="spinner"></div><span>処理中...</span></div>';
+
+            try {
+                if (file.type === 'application/pdf') {
+                    await processPDF(file);
+                } else if (file.type.startsWith('image/')) {
+                    await processImage(file);
+                }
+            } catch (error) {
+                previewContainer.innerHTML = '<p style="color:#dc2626">エラー</p>';
+            }
+        }
+
+        function renderCalendar() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            
+            document.getElementById('current-month').textContent = `${year}年${month + 1}月`;
+            
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const grid = document.getElementById('calendar-grid');
+            grid.innerHTML = '';
+
+            for (let i = 0; i < firstDay.getDay(); i++) {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day empty';
+                grid.appendChild(cell);
+            }
+
+            const today = new Date();
+            for (let day = 1; day <= lastDay.getDate(); day++) {
+                const date = new Date(year, month, day);
+                const dateStr = formatDate(date);
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day';
+                
+                if (selectedDate && formatDate(selectedDate) === dateStr) {
+                    cell.classList.add('selected');
+                }
+
+                const isToday = formatDate(today) === dateStr;
+                const dayNumber = document.createElement('div');
+                dayNumber.className = 'day-number' + (isToday ? ' today' : '');
+                dayNumber.textContent = day;
+                cell.appendChild(dayNumber);
+
+                const dayEvents = document.createElement('div');
+                dayEvents.className = 'day-events';
+
+                const dayEventsData = events.filter(e => e.date === dateStr);
+                const dayShifts = shifts.filter(s => s.date === dateStr);
+                const dayTransactions = transactions.filter(t => t.date === dateStr);
+
+                dayEventsData.slice(0, 1).forEach(e => {
+                    const tag = document.createElement('div');
+                    tag.className = 'day-event-tag event';
+                    tag.textContent = e.title;
+                    dayEvents.appendChild(tag);
+                });
+
+                if (dayShifts.length > 0) {
+                    const tag = document.createElement('div');
+                    tag.className = 'day-event-tag shift';
+                    tag.textContent = 'バイト';
+                    dayEvents.appendChild(tag);
+                }
+
+                if (dayTransactions.length > 0) {
+                    const total = dayTransactions.reduce((sum, t) => 
+                        sum + (t.type === 'expense' ? -t.amount : t.amount), 0);
+                    const tag = document.createElement('div');
+                    tag.className = 'day-event-tag money' + (total >= 0 ? ' income' : '');
+                    tag.textContent = (total >= 0 ? '+' : '') + '¥' + Math.abs(total).toLocaleString();
+                    dayEvents.appendChild(tag);
+                }
+
+                cell.appendChild(dayEvents);
+
+                cell.addEventListener('click', () => {
+                    document.querySelectorAll('.calendar-day').forEach(c => c.classList.remove('selected'));
+                    cell.classList.add('selected');
+                    selectedDate = date;
+                    renderDetailPanel();
+                });
+
+                grid.appendChild(cell);
+            }
+        }
+
+        function renderDetailPanel() {
+            if (!selectedDate) {
+                document.getElementById('detail-panel').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('detail-panel').style.display = 'block';
+            const dateStr = formatDate(selectedDate);
+            document.getElementById('detail-date').textContent = 
+                `${selectedDate.getMonth() + 1}/${selectedDate.getDate()}の予定`;
+
+            const list = document.getElementById('detail-list');
+            const dayEvents = events.filter(e => e.date === dateStr);
+            const dayShifts = shifts.filter(s => s.date === dateStr);
+            const dayTransactions = transactions.filter(t => t.date === dateStr);
+
+            if (dayEvents.length + dayShifts.length + dayTransactions.length === 0) {
+                list.innerHTML = '<p class="empty-message">予定はありません</p>';
+                return;
+            }
+
+            list.innerHTML = '';
+
+            dayEvents.forEach((e) => {
+                const idx = events.indexOf(e);
+                list.innerHTML += `
+                    <div class="detail-item event">
+                        <div class="detail-item-content">
+                            <h4>${escapeHtml(e.title)}</h4>
+                            <p>${e.time || '終日'}${e.reminder ? ' 🔔' : ''}</p>
+                        </div>
+                        <button class="delete-btn" onclick="deleteEvent(${idx})">🗑️</button>
+                    </div>
+                `;
+            });
+
+            dayShifts.forEach((s) => {
+                const idx = shifts.indexOf(s);
+                const hours = calculateHours(s.startTime, s.endTime);
+                const earnings = hours * s.hourlyWage;
+                list.innerHTML += `
+                    <div class="detail-item shift">
+                        <div class="detail-item-content">
+                            <h4>バイト</h4>
+                            <p>${s.startTime} - ${s.endTime}</p>
+                            <p class="amount">¥${earnings.toLocaleString()}</p>
+                        </div>
+                        <button class="delete-btn" onclick="deleteShift(${idx})">🗑️</button>
+                    </div>
+                `;
+            });
+
+            dayTransactions.forEach((t) => {
+                const idx = transactions.indexOf(t);
+                list.innerHTML += `
+                    <div class="detail-item ${t.type}">
+                        <div class="detail-item-content">
+                            <h4>${t.type === 'income' ? '収入' : '支出'}: ${escapeHtml(t.category || '未分類')}</h4>
+                            ${t.memo ? `<p>${escapeHtml(t.memo)}</p>` : ''}
+                            <p class="amount">${t.type === 'income' ? '+' : '-'}¥${t.amount.toLocaleString()}</p>
+                        </div>
+                        <button class="delete-btn" onclick="deleteTransaction(${idx})">🗑️</button>
+                    </div>
+                `;
+            });
+        }
+
+        function renderShiftList() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            
+            const monthShifts = shifts.filter(s => {
+                const d = parseDate(s.date);
+                return d.getFullYear() === year && d.getMonth() === month;
+            }).sort((a, b) => a.date.localeCompare(b.date));
+
+            const totalEarnings = monthShifts.reduce((sum, s) => {
+                return sum + calculateHours(s.startTime, s.endTime) * s.hourlyWage;
+            }, 0);
+
+            document.getElementById('monthly-earnings').textContent = '¥' + totalEarnings.toLocaleString();
+            document.getElementById('shift-count').textContent = monthShifts.length + '回勤務';
+
+            const list = document.getElementById('shift-list');
+            if (monthShifts.length === 0) {
+                list.innerHTML = '<p class="empty-message">シフトがありません</p>';
+                return;
+            }
+
+            list.innerHTML = monthShifts.map(s => {
+                const idx = shifts.indexOf(s);
+                const hours = calculateHours(s.startTime, s.endTime);
+                const earnings = hours * s.hourlyWage;
+                return `
+                    <div class="shift-item">
+                        <div class="shift-item-info">
+                            <h4>${s.date}</h4>
+                            <p>${s.startTime} - ${s.endTime} (${hours.toFixed(1)}h)</p>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <span class="shift-item-amount">¥${earnings.toLocaleString()}</span>
+                            <button class="delete-btn" onclick="deleteShift(${idx})">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderTransactionList() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            
+            const monthTransactions = transactions.filter(t => {
+                const d = parseDate(t.date);
+                return d.getFullYear() === year && d.getMonth() === month;
+            }).sort((a, b) => b.date.localeCompare(a.date));
+
+            const list = document.getElementById('transaction-list');
+            if (monthTransactions.length === 0) {
+                list.innerHTML = '<p class="empty-message">取引がありません</p>';
+                return;
+            }
+
+            list.innerHTML = monthTransactions.map(t => {
+                const idx = transactions.indexOf(t);
+                return `
+                    <div class="transaction-item">
+                        <div class="transaction-item-info">
+                            <h4>${escapeHtml(t.category || '未分類')}</h4>
+                            <p>${t.date}${t.memo ? ' - ' + escapeHtml(t.memo) : ''}</p>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <span class="transaction-item-amount ${t.type}">
+                                ${t.type === 'income' ? '+' : '-'}¥${t.amount.toLocaleString()}
+                            </span>
+                            <button class="delete-btn" onclick="deleteTransaction(${idx})">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateSummary() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+
+            const shiftEarnings = shifts.filter(s => {
+                const d = parseDate(s.date);
+                return d.getFullYear() === year && d.getMonth() === month;
+            }).reduce((sum, s) => sum + calculateHours(s.startTime, s.endTime) * s.hourlyWage, 0);
+
+            const monthTransactions = transactions.filter(t => {
+                const d = parseDate(t.date);
+                return d.getFullYear() === year && d.getMonth() === month;
+            });
+
+            const income = monthTransactions.filter(t => t.type === 'income')
+                .reduce((sum, t) => sum + t.amount, 0) + shiftEarnings;
+            const expense = monthTransactions.filter(t => t.type === 'expense')
+                .reduce((sum, t) => sum + t.amount, 0);
+            const balance = income - expense;
+
+            document.getElementById('total-income').textContent = '¥' + income.toLocaleString();
+            document.getElementById('total-expense').textContent = '¥' + expense.toLocaleString();
+            document.getElementById('total-balance').textContent = '¥' + balance.toLocaleString();
+
+            const balanceCard = document.getElementById('balance-card');
+            balanceCard.classList.toggle('negative', balance < 0);
+        }
+
+        function openModal(type) {
+            const overlay = document.getElementById('modal-overlay');
+            const title = document.getElementById('modal-title');
+            const body = document.getElementById('modal-body');
+            const dateStr = selectedDate ? formatDate(selectedDate) : formatDate(new Date());
+
+            extractedAmounts = [];
+            currentFileData = null;
+            currentFileType = null;
+
+            if (type === 'event') {
+                title.textContent = '予定を追加';
+                body.innerHTML = `
+                    <div class="form-group">
+                        <label>タイトル</label>
+                        <input type="text" id="event-title" placeholder="予定のタイトル">
+                    </div>
+                    <div class="form-group">
+                        <label>日付</label>
+                        <input type="date" id="event-date" value="${dateStr}">
+                    </div>
+                    <div class="form-group">
+                        <label>時間</label>
+                        <input type="time" id="event-time">
+                    </div>
+                    <div class="form-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="event-reminder">
+                            <label>リマインダー</label>
+                            <select id="event-reminder-time">
+                                <option value="5">5分前</option>
+                                <option value="15">15分前</option>
+                                <option value="30" selected>30分前</option>
+                                <option value="60">1時間前</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="submit-btn event" onclick="saveEvent()">追加</button>
+                `;
+            } else if (type === 'shift') {
+                title.textContent = 'シフトを追加';
+                body.innerHTML = `
+                    <div class="form-group">
+                        <label>日付</label>
+                        <input type="date" id="shift-date" value="${dateStr}">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>開始</label>
+                            <input type="time" id="shift-start" onchange="updateShiftPreview()">
+                        </div>
+                        <div class="form-group">
+                            <label>終了</label>
+                            <input type="time" id="shift-end" onchange="updateShiftPreview()">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>時給</label>
+                        <input type="number" id="shift-wage" value="${hourlyWage}" inputmode="numeric" onchange="updateShiftPreview()">
+                    </div>
+                    <div class="preview-box" id="shift-preview" style="display:none;">
+                        <div class="label">予想給料</div>
+                        <div class="value" id="shift-preview-amount">¥0</div>
+                    </div>
+                    <button class="submit-btn shift" onclick="saveShift()">追加</button>
+                `;
+            } else if (type === 'transaction') {
+                title.textContent = '収支を追加';
+                body.innerHTML = `
+                    <div class="form-group">
+                        <label>ファイル</label>
+                        <input type="file" id="tx-file" accept="image/*,.pdf" onchange="handleModalFileUpload(event)">
+                        <div id="file-preview-container"></div>
+                    </div>
+                    <div class="ocr-result-box" id="ocr-result-box" style="display:none;"></div>
+                    <div class="form-group">
+                        <label>日付</label>
+                        <input type="date" id="tx-date" value="${dateStr}">
+                    </div>
+                    <div class="form-group">
+                        <label>種類</label>
+                        <div class="type-toggle">
+                            <button class="type-btn expense active" onclick="setTxType('expense')">支出</button>
+                            <button class="type-btn income" onclick="setTxType('income')">収入</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>カテゴリ</label>
+                        <select id="tx-category">
+                            <option value="">選択</option>
+                            <option value="食費">食費</option>
+                            <option value="交通費">交通費</option>
+                            <option value="日用品">日用品</option>
+                            <option value="娯楽">娯楽</option>
+                            <option value="衣服">衣服</option>
+                            <option value="通信費">通信費</option>
+                            <option value="光熱費">光熱費</option>
+                            <option value="その他">その他</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>金額</label>
+                        <input type="number" id="tx-amount" placeholder="0" inputmode="numeric">
+                    </div>
+                    <div class="form-group">
+                        <label>メモ</label>
+                        <textarea id="tx-memo" placeholder="メモ（任意）"></textarea>
+                    </div>
+                    <input type="hidden" id="tx-type" value="expense">
+                    <button class="submit-btn transaction" onclick="saveTransaction()">追加</button>
+                `;
+            }
+
+            overlay.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('active');
+            document.body.style.overflow = '';
+            extractedAmounts = [];
+            currentFileData = null;
+            currentFileType = null;
+        }
+
+        function updateShiftPreview() {
+            const start = document.getElementById('shift-start').value;
+            const end = document.getElementById('shift-end').value;
+            const wage = parseInt(document.getElementById('shift-wage').value) || hourlyWage;
+            const preview = document.getElementById('shift-preview');
+
+            if (start && end) {
+                const hours = calculateHours(start, end);
+                const earnings = hours * wage;
+                document.getElementById('shift-preview-amount').textContent = '¥' + earnings.toLocaleString();
+                preview.style.display = 'block';
+            } else {
+                preview.style.display = 'none';
+            }
+        }
+
+        function setTxType(type) {
+            document.getElementById('tx-type').value = type;
+            document.querySelectorAll('.type-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.classList.contains(type)) btn.classList.add('active');
+            });
+
+            const categorySelect = document.getElementById('tx-category');
+            if (type === 'income') {
+                categorySelect.innerHTML = `
+                    <option value="">選択</option>
+                    <option value="給与">給与</option>
+                    <option value="副業">副業</option>
+                    <option value="臨時収入">臨時収入</option>
+                    <option value="その他">その他</option>
+                `;
+            } else {
+                categorySelect.innerHTML = `
+                    <option value="">選択</option>
+                    <option value="食費">食費</option>
+                    <option value="交通費">交通費</option>
+                    <option value="日用品">日用品</option>
+                    <option value="娯楽">娯楽</option>
+                    <option value="衣服">衣服</option>
+                    <option value="通信費">通信費</option>
+                    <option value="光熱費">光熱費</option>
+                    <option value="その他">その他</option>
+                `;
+            }
+        }
+
+        function saveEvent() {
+            const title = document.getElementById('event-title').value;
+            const date = document.getElementById('event-date').value;
+            const time = document.getElementById('event-time').value;
+            const reminder = document.getElementById('event-reminder').checked;
+            const reminderTime = parseInt(document.getElementById('event-reminder-time').value);
+
+            if (!title || !date) {
+                alert('タイトルと日付を入力してください');
+                return;
+            }
+
+            events.push({ id: Date.now(), title, date, time, reminder, reminderTime });
+            localStorage.setItem('events', JSON.stringify(events));
+            
+            closeModal();
+            renderCalendar();
+            renderDetailPanel();
+        }
+
+        function saveShift() {
+            const date = document.getElementById('shift-date').value;
+            const startTime = document.getElementById('shift-start').value;
+            const endTime = document.getElementById('shift-end').value;
+            const wage = parseInt(document.getElementById('shift-wage').value) || hourlyWage;
+
+            if (!date || !startTime || !endTime) {
+                alert('日付と時間を入力してください');
+                return;
+            }
+
+            shifts.push({ id: Date.now(), date, startTime, endTime, hourlyWage: wage });
+            localStorage.setItem('shifts', JSON.stringify(shifts));
+            
+            closeModal();
+            renderCalendar();
+            renderDetailPanel();
+            renderShiftList();
+            updateSummary();
+        }
+
+        function saveTransaction() {
+            const date = document.getElementById('tx-date').value;
+            const type = document.getElementById('tx-type').value;
+            const category = document.getElementById('tx-category').value;
+            const amount = parseInt(document.getElementById('tx-amount').value);
+            const memo = document.getElementById('tx-memo').value;
+
+            if (!date || !amount) {
+                alert('日付と金額を入力してください');
+                return;
+            }
+
+            transactions.push({ 
+                id: Date.now(), 
+                date, 
+                type, 
+                category, 
+                amount, 
+                memo,
+                fileData: currentFileData,
+                fileType: currentFileType
+            });
+            localStorage.setItem('transactions', JSON.stringify(transactions));
+            
+            closeModal();
+            renderCalendar();
+            renderDetailPanel();
+            renderTransactionList();
+            updateSummary();
+        }
+
+        function deleteEvent(idx) {
+            if (confirm('削除しますか？')) {
+                events.splice(idx, 1);
+                localStorage.setItem('events', JSON.stringify(events));
+                renderCalendar();
+                renderDetailPanel();
+            }
+        }
+
+        function deleteShift(idx) {
+            if (confirm('削除しますか？')) {
+                shifts.splice(idx, 1);
+                localStorage.setItem('shifts', JSON.stringify(shifts));
+                renderCalendar();
+                renderDetailPanel();
+                renderShiftList();
+                updateSummary();
+            }
+        }
+
+        function deleteTransaction(idx) {
+            if (confirm('削除しますか？')) {
+                transactions.splice(idx, 1);
+                localStorage.setItem('transactions', JSON.stringify(transactions));
+                renderCalendar();
+                renderDetailPanel();
+                renderTransactionList();
+                updateSummary();
+            }
+        }
+
+        function formatDate(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function parseDate(dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        }
+
+        function calculateHours(start, end) {
+            const [sh, sm] = start.split(':').map(Number);
+            const [eh, em] = end.split(':').map(Number);
+            return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"']/g, (m) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[m]);
+        }
+
+        function requestNotificationPermission() {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        }
+
+        // リマインダーチェック
+        setInterval(() => {
+            if (Notification.permission !== 'granted') return;
+
+            const now = new Date();
+            events.forEach(event => {
+                if (!event.reminder || !event.time) return;
+
+                const eventDate = parseDate(event.date);
+                const [h, m] = event.time.split(':').map(Number);
+                eventDate.setHours(h, m);
+
+                const diff = (eventDate - now) / 60000;
+                if (diff > 0 && diff <= event.reminderTime && diff > event.reminderTime - 1) {
+                    new Notification(`リマインダー: ${event.title}`, {
+                        body: `${event.reminderTime}分後に予定があります`
+                    });
+                }
+            });
+        }, 60000);
+    </script>
+</body>
+</html>
